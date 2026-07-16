@@ -1,4 +1,5 @@
 import os
+import datetime
 from supabase import create_client
 from dotenv import load_dotenv
 
@@ -71,19 +72,29 @@ class Storage:
 
     # ---------- Ajout / suppression ----------
 
-    def add_video(self, video_bytes, storage_path, human_detected=True, duration_seconds=None):
-        """Upload directement depuis un buffer mémoire (pas de fichier sur disque)."""
+    def add_video( self, video_bytes, storage_path, human_detected,
+                        duration_seconds=None, recorded_at=None,):
+        """
+        Upload directement depuis un buffer mémoire (pas de fichier sur disque).
+ 
+        recorded_at : datetime (timezone-aware de préférence) représentant
+        l'heure réelle de l'enregistrement. Si non fourni, l'heure actuelle
+        est utilisée.
+        """
+        recorded_at = recorded_at or datetime.now().astimezone()
+ 
         self.bucket.upload(
             path=storage_path,
             file=video_bytes,
             file_options={"content-type": "video/mp4"}
         )
-
+ 
         data = {
             "filename": os.path.basename(storage_path),
             "storage_path": storage_path,
             "human_detected": human_detected,
             "duration_seconds": duration_seconds,
+            "recorded_at": recorded_at.isoformat(),
         }
         return self.supabase.table("videos").insert(data).execute().data
 
