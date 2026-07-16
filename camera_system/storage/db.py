@@ -1,164 +1,97 @@
-from supabase import Client, create_client
 import os
+from supabase import create_client
 from dotenv import load_dotenv
 
 
-class VideoRepository:
+class Storage:
     """
-    Gère les informations des vidéos dans la base de données SQL.
+    Fonctions pour récupérer les vidéos : leurs infos en base SQL
+    et leur fichier dans le bucket Supabase Storage.
     """
 
-    def __init__(self):
-        """
-        Initialise l'accès à la base de données.
-
-        Args:
-            supabase_client: Client Supabase déjà configuré.
-        """
-
+    def __init__(self, bucket_name="camera-videos"):
         load_dotenv()
-
         SUPABASE_URL = os.getenv("SUPABASE_URL")
         SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
         self.supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        self.bucket = self.supabase.storage.from_(bucket_name)
 
-    def add_video(
-        self,
-        filename,
-        storage_path,
-        video_url=None,
-        duration_seconds=None,
-        human_detected=True
-    ):
-        """
-        Ajoute les informations d'une vidéo dans la table SQL.
-
-        Args:
-            filename (str): Nom du fichier vidéo.
-            storage_path (str): Emplacement du fichier dans Supabase Storage.
-            video_url (str | None): URL permettant d'accéder à la vidéo.
-            duration_seconds (float | None): Durée de la vidéo.
-            human_detected (bool): Indique si un humain a été détecté.
-
-        Returns:
-            Réponse retournée par Supabase.
-        """
-        video_data = {
-            "filename": filename,
-            "storage_path": storage_path,
-            "video_url": video_url,
-            "duration_seconds": duration_seconds,
-            "human_detected": human_detected
-        }
-
-        return (
-            self.supabase
-            .table("videos")
-            .insert(video_data)
-            .execute()
-        )
-
-    def delete_video(self, video_id):
-        """
-        Supprime une vidéo de la base de données.
-
-        Args:
-            video_id (int): Identifiant de la vidéo à supprimer.
-
-        Returns:
-            Réponse retournée par Supabase.
-        """
-        return (
-            self.supabase
-            .table("videos")
-            .delete()
-            .eq("id", video_id)
-            .execute()
-        )
+    # ---------- Table "videos" ----------
 
     def get_video(self, video_id):
-        """
-        Récupère une vidéo précise à partir de son identifiant.
-
-        Args:
-            video_id (int): Identifiant de la vidéo à récupérer.
-
-        Returns:
-            Réponse retournée par Supabase.
-        """
-        return (
+        """Récupère une vidéo précise à partir de son identifiant."""
+        response = (
             self.supabase
             .table("videos")
             .select("*")
             .eq("id", video_id)
-            .single()
+            .maybe_single()
             .execute()
         )
+        return response.data if response else None
 
     def get_all_videos(self):
-        """
-        Récupère toutes les vidéos enregistrées dans la base de données.
-
-        Returns:
-            Réponse retournée par Supabase.
-        """
+        """Récupère toutes les vidéos enregistrées."""
         return (
             self.supabase
             .table("videos")
             .select("*")
             .order("id", desc=True)
             .execute()
+            .data
         )
 
     def get_videos_by_human_detection(self, human_detected=True):
-        """
-        Récupère les vidéos filtrées selon la détection d'un humain.
-
-        Args:
-            human_detected (bool): Filtre sur la présence ou non d'un humain détecté.
-
-        Returns:
-            Réponse retournée par Supabase.
-        """
+        """Récupère les vidéos où une présence humaine a (ou non) été détectée."""
         return (
             self.supabase
             .table("videos")
             .select("*")
             .eq("human_detected", human_detected)
+            .order("id", desc=True)
             .execute()
+            .data
         )
 
-    def update_video(self, video_id, **fields):
-        """
-        Met à jour les informations d'une vidéo existante.
+    # ---------- Bucket (fichiers vidéo) ----------
 
-        Args:
-            video_id (int): Identifiant de la vidéo à mettre à jour.
-            **fields: Champs à mettre à jour (ex: video_url="...", duration_seconds=12.5).
+    # def get_video_url(self, storage_path, expires_in=3600):
+    #     """Génère une URL temporaire pour lire/télécharger le fichier vidéo."""
+    #     response = self.bucket.create_signed_url(storage_path, expires_in)
+    #     return response.get("signedURL") or response.get("signed_url")
 
-        Returns:
-            Réponse retournée par Supabase.
-        """
-        return (
-            self.supabase
-            .table("videos")
-            .update(fields)
-            .eq("id", video_id)
-            .execute()
+    def get_video_file(self, storage_path):
+        """Télécharge le contenu brut (bytes) du fichier vidéo."""
+        return self.bucket.download(storage_path)
+
+    def list_video_files(self, prefix=""):
+        """Liste les fichiers présents dans le bucket (optionnellement dans un sous-dossier)."""
+        return self.bucket.list(path=prefix)
+
+    # ---------- Ajout / suppression ----------
+
+    def add_video(self, video_bytes, storage_path, human_detected=True, duration_seconds=None):
+        """Upload directement depuis un buffer mémoire (pas de fichier sur disque)."""
+        self.bucket.upload(
+            path=storage_path,
+            file=video_bytes,
+            file_options={"content-type": "video/mp4"}
         )
 
-    def count_videos(self):
-        """
-        Compte le nombre total de vidéos enregistrées.
+        data = {
+            "filename": os.path.basename(storage_path),
+            "storage_path": storage_path,
+            "human_detected": human_detected,
+            "duration_seconds": duration_seconds,
+        }
+        return self.supabase.table("videos").insert(data).execute().data
 
-        Returns:
-            int: Nombre de vidéos dans la table.
-        """
-        response = (
-            self.supabase
-            .table("videos")
-            .select("id", count="exact")
-            .execute()
-        )
-        return response.count
+    def remove_video(self, video_id):
+        """Supprime la vidéo du bucket et de la table SQL."""
+        video = self.get_video(video_id)
+        if not video:
+            return None
+
+        self.bucket.remove([video["storage_path"]])
+        return self.supabase.table("videos").delete().eq("id", video_id).execute().data
