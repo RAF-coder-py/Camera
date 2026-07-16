@@ -1,0 +1,6 @@
+.env
+config.yaml
+.venv
+.lgd-nfy0
+.gitignore.env
+__pycache__/
