@@ -1,5 +1,6 @@
 import io
 import time
+import subprocess
 from picamera2 import Picamera2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import FileOutput
@@ -48,12 +49,22 @@ class CameraController:
         self.camera.stop()
 
         duration = round(time.time() - self.start_time, 1)
-        video_bytes = self.buffer.getvalue()
+        raw_h264 = self.buffer.getvalue()
 
         self.buffer.close()
         self.buffer = None
         self.is_recording = False
         self.start_time = None
+
+        # On remet la vidéo dans un vrai conteneur MP4
+        video_bytes = subprocess.run(
+            ["ffmpeg", "-y", "-r", "30", "-i", "pipe:0",
+            "-c:v", "copy", "-f", "mp4",
+            "-movflags", "frag_keyframe+empty_moov", "pipe:1"],
+            input=raw_h264,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ).stdout
 
         return {
             "video_bytes": video_bytes,
@@ -69,7 +80,7 @@ class CameraController:
     # ---------- Divers ----------
 
     def capture_snapshot(self):
-        """Capture une image fixe en mémoire (utile pour vérification IA rapide)."""
+        """Capture une image fixe en mémoire."""
         buffer = io.BytesIO()
 
         was_off = not self.camera.started

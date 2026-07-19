@@ -22,6 +22,7 @@ class PIRWatcher:
         Bloque le programme jusqu'à ce qu'un mouvement soit détecté.
         """
         self.pir.wait_for_motion()
+        print("Ralph detected")
 
     def wait_for_no_motion(self):
         """

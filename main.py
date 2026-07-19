@@ -8,31 +8,48 @@
 
 
 from datetime import datetime
+import time
+import yaml
 
+
+from camera_system.sensors.pir_watcher import PIRWatcher
 from camera_system.recorder.camera_controller import CameraController
 from camera_system.storage.db import Storage
 
 
+def load_config(path: str = "config.yaml") -> dict:
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
+
+
 def main():
-    cam = CameraController()
+
+    config = load_config()
+    pir_pin = config['pir']['gpio_pin']
+    resolution = (config['camera']['resolution']['width'], config['camera']['resolution']['height'])
+    pir_min_interval_seconds = config['pir']['min_interval_seconds']
+
+    pir = PIRWatcher(pir_pin)
+    cam = CameraController(resolution)
     storage = Storage()
 
+
     try:
-        print("Enregistrement en cours (5 secondes)...")
-        result = cam.record_for(5)
+        while True:
 
-        recorded_at = datetime.now().astimezone()
-        storage_path = f"video_{recorded_at.strftime('%Y%m%d_%H%M%S')}.h264"
-
-        storage.add_video(
-            video_bytes=result["video_bytes"],
-            storage_path=storage_path,
-            duration_seconds=result["duration_seconds"],
-            recorded_at=recorded_at,
-        )
-
-        print(f"Vidéo enregistrée : {storage_path} ({result['duration_seconds']}s)")
-
+            pir.wait_for_motion()
+            recorded_at = datetime.now().astimezone()
+            cam.start_recording()
+            pir.wait_for_no_motion()
+            result = cam.stop_recording()
+            storage.add_video(
+                video_bytes=result['video_bytes'],
+                storage_path=storage.build_storage_path(recorded_at),
+                human_detected=True,
+                duration_seconds=result['duration_seconds'],
+                recorded_at=recorded_at
+            )
+            time.sleep(pir_min_interval_seconds)
     finally:
         cam.close()
 

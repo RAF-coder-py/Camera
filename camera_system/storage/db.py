@@ -106,3 +106,15 @@ class Storage:
 
         self.bucket.remove([video["storage_path"]])
         return self.supabase.table("videos").delete().eq("id", video_id).execute().data
+    
+    def build_storage_path(self, recorded_at: datetime, extension: str = "mp4") -> str:
+        """
+        Construit un chemin de type :
+        2026/July/19/video_14h32.mp4
+        """
+        year = recorded_at.strftime("%Y")          
+        month = recorded_at.strftime("%B")         
+        day = recorded_at.strftime("%d")           
+        filename = f"{recorded_at.strftime('%Hh%M')}.{extension}"
+
+        return f"{year}/{month}/{day}/{filename}"
